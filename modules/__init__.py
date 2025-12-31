@@ -1,0 +1,6 @@
+"""
+AP Calculus BC AI Mastermind - Core Modules
+"""
+
+__version__ = "1.0.0"
+

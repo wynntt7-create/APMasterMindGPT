@@ -1,0 +1,37 @@
+AP Calculus BC "AI Mastermind" - Implementation Plan
+
+## OBJECTIVE
+Create a Streamlit-based AI Chatbot specialized in AP Calculus BC that handles step-by-step logic, LaTeX rendering, and Matplotlib graphing.
+
+## 1. ENVIRONMENT SETUP
+- Use `python-dotenv` to load the `OPENAI_API_KEY` from a `.env` file.
+- Required Libraries: streamlit, openai, python-dotenv, matplotlib, numpy, sympy.
+
+## 2. FRONTEND (STREAMLIT)
+- **Title:** "AP Calculus BC AI Mastermind"
+- **Sidebar Selection:** Create a radio button or selectbox for "Unit Focus":
+    - Integration Techniques (Parts, Partial Fractions, Improper)
+    - Differential Equations (Euler's Method, Logistic Growth)
+    - Parametrics & Vectors (Position, Velocity, Arc Length)
+    - Polar Curves (Area, Slopes)
+    - Infinite Series (Ratio Test, Taylor/Maclaurin, Lagrange Error)
+- **Chat Interface:** Use `st.chat_message` and `st.chat_input`.
+
+## 3. BACKEND LOGIC (PYTHON + OPENAI)
+- **Model:** GPT-4o.
+- **System Message:**
+  "You are an expert AP Calculus BC Tutor. Always show your work step-by-step. 
+  Use LaTeX for all mathematical notation (wrap formulas in $$ for centered or $ for inline). 
+  When solving integrals or series convergence tests, explicitly name the specific theorem used."
+- **LaTeX Enhancement:** Use `st.latex()` or ensure Markdown responses are correctly formatted so Streamlit's KaTeX engine renders them.
+
+## 4. GRAPHING ENGINE (MATPLOTLIB)
+- Create a function `generate_calc_plot(equation_string)`:
+    - Use `sympy` to parse the user's function.
+    - Use `numpy` to generate x-values.
+    - Use `matplotlib` to plot.
+    - Display in Streamlit using `st.pyplot(fig)`.
+
+## 5. REFINEMENT
+- Add a "Clear Chat" button in the sidebar.
+- Ensure the AI prompts the user: "Would you like me to graph this function for you?" whenever a function is discussed.
