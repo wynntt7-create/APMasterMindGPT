@@ -12,7 +12,7 @@ An intelligent AI-powered chatbot specialized in AP Calculus BC, providing step-
   - Parametrics & Vectors (Position, Velocity, Arc Length)
   - Polar Curves (Area, Slopes)
   - Infinite Series (Ratio Test, Taylor/Maclaurin, Lagrange Error)
-- **Interactive Graphing**: Visualize functions using Matplotlib with SymPy parsing
+- **Interactive Graphing**: Visualize functions with an embedded Desmos graph (SymPy parsing + LaTeX support)
 - **Conversation History**: Maintains context throughout your session
 - **Clear Interface**: Modern Streamlit UI with sidebar controls
 
@@ -32,12 +32,18 @@ An intelligent AI-powered chatbot specialized in AP Calculus BC, providing step-
    pip install -r requirements.txt
    ```
 
-3. **Set up your API key**:
+3. **Set up your API keys**:
    - Create a `.env` file in the project root directory
    - Add your OpenAI API key:
      ```
      OPENAI_API_KEY=your_actual_api_key_here
      ```
+   - Add your Desmos API key (required for graphs to load):
+     - Get a key at [Desmos API](https://www.desmos.com/api)
+     - Add it to `.env`:
+       ```
+       DESMOS_API_KEY=your_desmos_api_key_here
+       ```
    - **Important**: Never commit your `.env` file to version control (it's already in `.gitignore`)
 
 ### Running the Application
@@ -57,7 +63,9 @@ The application will open in your default web browser at `http://localhost:8501`
 
 3. **View Solutions**: The AI will provide step-by-step solutions with properly formatted LaTeX mathematics
 
-4. **Graph Functions**: When discussing functions, the AI will offer to graph them. Click the graph button to visualize
+4. **Graph Functions**:
+   - If you ask “graph/plot …”, the app will graph it automatically.
+   - Otherwise, when a function is detected it will show a “Graph This Function” button.
 
 5. **Clear Chat**: Use the "Clear Chat" button in the sidebar to start a new conversation
 

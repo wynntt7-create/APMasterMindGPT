@@ -3,9 +3,29 @@ AP Calculus BC AI Mastermind - Main Streamlit Application
 """
 
 import streamlit as st
+import streamlit.components.v1 as components
 from modules.openai_handler import send_message, validate_api_key
 from modules.graph_engine import generate_calc_plot, extract_equation_from_text
 import re
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables (OpenAI + Desmos keys)
+# Streamlit reruns this script, so keep it here (not only inside imported modules).
+load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
+
+
+def _is_graph_request(text: str) -> bool:
+    """
+    Heuristic: treat messages containing 'graph/plot' as requests to render a graph now.
+    """
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+    # common student phrasing: "graph y=...", "plot f(x)=...", "show me the graph of ..."
+    return bool(re.search(r'\b(graph|plot|sketch|draw|visualize|visualise)\b', t))
+
 
 # Page configuration
 st.set_page_config(
@@ -69,6 +89,14 @@ with st.sidebar:
         st.error("❌ API Key Invalid")
         st.info("Please check your .env file")
 
+    # Desmos Status (graphing)
+    desmos_key = (os.getenv("DESMOS_API_KEY") or "").strip()
+    if desmos_key:
+        st.success("✅ Desmos Key Set")
+    else:
+        st.warning("⚠️ Desmos Key Missing")
+        st.caption("Set `DESMOS_API_KEY` in your `.env` (graphs won't load without it).")
+
 # Main content area
 st.title("AP Calculus BC AI Mastermind")
 st.markdown("Your intelligent calculus tutor powered by GPT-4o-mini")
@@ -81,8 +109,8 @@ for idx, message in enumerate(st.session_state.messages):
         # Display graph if equation is stored
         if "graph_equation" in message:
             try:
-                fig = generate_calc_plot(message["graph_equation"])
-                st.pyplot(fig)
+                html_content = generate_calc_plot(message["graph_equation"])
+                components.html(html_content, height=550)
             except Exception as e:
                 st.error(f"Error displaying graph: {str(e)}")
         
@@ -90,11 +118,14 @@ for idx, message in enumerate(st.session_state.messages):
         if "equation_detected" in message and "graph_equation" not in message:
             eq = message["equation_detected"]
             button_key = f"graph_btn_{idx}"
-            if st.button(f"📊 Graph: {eq}", key=button_key):
+            # Show the equation and button clearly
+            st.write(f"**Function detected:** `{eq}`")
+            graph_button = st.button(f"📊 Graph This Function", key=button_key, use_container_width=True, type="primary")
+            
+            if graph_button:
                 try:
-                    fig = generate_calc_plot(eq)
-                    st.pyplot(fig)
-                    message["graph_equation"] = eq
+                    # Update the message in session state to include the graph
+                    st.session_state.messages[idx]["graph_equation"] = eq
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error generating graph: {str(e)}")
@@ -135,6 +166,8 @@ if prompt := st.chat_input("Ask me anything about AP Calculus BC..."):
                 equation_detected = extract_equation_from_text(prompt)
                 if not equation_detected:
                     equation_detected = extract_equation_from_text(response)
+
+                wants_graph_now = _is_graph_request(prompt)
                 
                 # Add assistant response to chat history
                 message_data = {
@@ -142,12 +175,34 @@ if prompt := st.chat_input("Ask me anything about AP Calculus BC..."):
                     "content": response
                 }
                 
-                # Store detected equation if found (AI will prompt user via system prompt)
-                if equation_detected:
+                # If user explicitly asked to graph/plot, render immediately.
+                # Otherwise, store the detected equation and offer a button right away.
+                if equation_detected and wants_graph_now:
+                    message_data["graph_equation"] = equation_detected
+                elif equation_detected:
                     message_data["equation_detected"] = equation_detected
-                    st.info(f"💡 Function detected: `{equation_detected}` - Click the graph button below if you'd like to visualize it!")
                 
                 st.session_state.messages.append(message_data)
+                msg_idx = len(st.session_state.messages) - 1
+
+                # Render graph or button immediately in this same assistant message
+                if equation_detected and wants_graph_now:
+                    try:
+                        html_content = generate_calc_plot(equation_detected)
+                        components.html(html_content, height=550)
+                    except Exception as e:
+                        st.error(f"Error generating graph: {str(e)}")
+                elif equation_detected:
+                    st.write(f"**Function detected:** `{equation_detected}`")
+                    graph_button = st.button(
+                        "📊 Graph This Function",
+                        key=f"graph_btn_live_{msg_idx}",
+                        use_container_width=True,
+                        type="primary",
+                    )
+                    if graph_button:
+                        st.session_state.messages[msg_idx]["graph_equation"] = equation_detected
+                        st.rerun()
                 
             except Exception as e:
                 error_message = f"❌ Error: {str(e)}"
