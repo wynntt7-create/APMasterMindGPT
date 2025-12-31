@@ -21,52 +21,79 @@ CRITICAL INSTRUCTIONS:
    - Example: If discussing f(x) = x^2, write it clearly as "f(x) = x^2" so it can be graphed
 """
 
-UNIT_PROMPTS = {
-    "Integration Techniques": """
-    Focus Areas:
-    - Integration by Parts: Remember the LIATE rule and when to apply it
-    - Partial Fractions: Decompose rational functions properly
-    - Improper Integrals: Check convergence using limits and comparison tests
-    - Trigonometric Substitution: Recognize when to use sin, tan, or sec substitutions
-    - Always verify your antiderivative by differentiating back
+UNIT_FOCUS_AREAS = {
+    1: """
+    Focus Areas (Limits & Continuity):
+    - Limits from graphs/tables/algebra; always state the limit process clearly
+    - One-sided limits and matching conditions for 2-sided limits
+    - Continuity: check f(c) exists, limit exists, and they match
+    - Infinite limits and asymptotic behavior
     """,
-    
-    "Differential Equations": """
-    Focus Areas:
-    - Euler's Method: Show step-by-step iterations with clear explanations
-    - Logistic Growth: Explain the carrying capacity and growth rate concepts
-    - Separation of Variables: Show the separation process clearly
-    - Slope Fields: Explain how to interpret and draw them
-    - Initial Value Problems: Always verify solutions satisfy both the DE and initial condition
+    2: """
+    Focus Areas (Derivative Basics):
+    - Derivative from first principles / limit definition
+    - Differentiability vs continuity (corners, cusps, vertical tangents, discontinuities)
+    - Core rules (power/product/quotient/chain) with clean notation
+    - Implicit differentiation and related rates with units
     """,
-    
-    "Parametrics & Vectors": """
-    Focus Areas:
-    - Position, Velocity, Acceleration: Explain the relationships clearly
-    - Arc Length: Show the formula and integration process step-by-step
-    - Speed: Distinguish from velocity (magnitude vs. vector)
-    - Tangent Lines: Find slopes using dy/dx = (dy/dt)/(dx/dt)
-    - Vector operations: Show component-wise calculations
+    3: """
+    Focus Areas (Advanced Differentiation):
+    - Trig / inverse trig derivatives and domain restrictions
+    - Exponential/log derivatives; logarithmic differentiation when helpful
+    - Higher derivatives and concavity/inflection points
     """,
-    
-    "Polar Curves": """
-    Focus Areas:
-    - Area: Use the formula A = (1/2)∫[α to β] r² dθ, show the integration clearly
-    - Slopes: Convert to parametric form or use dy/dx = (dy/dθ)/(dx/dθ)
-    - Intersection Points: Set equations equal and solve for θ
-    - Symmetry: Identify symmetry to simplify calculations
-    - Always sketch the curve when possible to visualize the region
+    4: """
+    Focus Areas (Contextual Applications):
+    - Interpreting derivatives as rates of change in context
+    - Motion: position/velocity/acceleration; speed vs velocity
+    - Units and sign analysis (increasing/decreasing, speeding up/slowing down)
     """,
-    
-    "Infinite Series": """
-    Focus Areas:
-    - Ratio Test: Show the limit calculation step-by-step
-    - Root Test: When to use it vs. Ratio Test
-    - Taylor/Maclaurin Series: Show the formula and find derivatives systematically
-    - Lagrange Error Bound: Explain what it means and how to use it
-    - Convergence Tests: Always state which test you're using and why it applies
-    - Interval of Convergence: Check endpoints separately
-    """
+    5: """
+    Focus Areas (Analytical Applications):
+    - MVT/EVT hypotheses and conclusions
+    - First/Second derivative tests, extrema, and curve analysis
+    - Optimization setup (define variable, objective function, domain, critical points)
+    - L’Hôpital’s Rule (BC): verify indeterminate forms before applying
+    """,
+    6: """
+    Focus Areas (Integration & FTC):
+    - Riemann sums and interpreting accumulation
+    - FTC Part 1 vs Part 2; link derivative/integral carefully
+    - Substitution and u-sub checks
+    - Net change and units/interpretation
+    """,
+    7: """
+    Focus Areas (Differential Equations):
+    - Slope fields and qualitative behavior
+    - Euler’s method: show table/iterations clearly
+    - Separable DEs: separate, integrate, apply initial conditions
+    - Logistic models: carrying capacity and long-term behavior
+    """,
+    8: """
+    Focus Areas (Applications of Integration):
+    - Area between curves: top-bottom, right-left, intersection points
+    - Volumes: disk/washer vs shells, choose a method and justify
+    - Arc length (BC) and average value
+    """,
+    9: """
+    Focus Areas (Parametric/Polar/Vector):
+    - Parametric derivatives dy/dx = (dy/dt)/(dx/dt)
+    - Parametric/polar speed and arc length (BC)
+    - Polar area and slopes (BC); symmetry and key angles
+    - Vector-valued motion: r(t), v(t), a(t)
+    """,
+    10: """
+    Focus Areas (Infinite Series - BC):
+    - Always start with the nth-term test when relevant
+    - Geometric series identification (common ratio) and sum formula
+    - Comparison / limit comparison and choosing a benchmark
+    - Integral test setup and remainder estimate when applicable
+    - Alternating series: AST conditions + error bound
+    - Ratio/Root tests for factorials/exponentials/powers
+    - Absolute vs conditional convergence (state clearly)
+    - Taylor/Maclaurin series mechanics + error bounds (Lagrange)
+    - Radius/interval of convergence: test endpoints separately
+    """,
 }
 
 def get_system_prompt(unit_focus: str = None) -> str:
@@ -81,9 +108,15 @@ def get_system_prompt(unit_focus: str = None) -> str:
     """
     prompt = BASE_SYSTEM_PROMPT
     
-    if unit_focus and unit_focus in UNIT_PROMPTS:
-        prompt += f"\n\nCURRENT UNIT FOCUS: {unit_focus}\n"
-        prompt += UNIT_PROMPTS[unit_focus]
+    if unit_focus:
+        prompt += f"\n\nCURRENT FOCUS: {unit_focus}\n"
+        # If unit number is present, add unit-specific coaching
+        import re as _re
+        m = _re.search(r'Unit\s+(\d+)\s*:', unit_focus)
+        if m:
+            unit_num = int(m.group(1))
+            if unit_num in UNIT_FOCUS_AREAS:
+                prompt += UNIT_FOCUS_AREAS[unit_num]
     
     return prompt
 
