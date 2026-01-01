@@ -4,10 +4,11 @@ AP Calculus BC AI Mastermind - Main Streamlit Application
 
 import streamlit as st
 import streamlit.components.v1 as components
-from modules.openai_handler import send_message, validate_api_key
-from modules.graph_engine import generate_calc_plot, extract_equation_from_text
+from modules.openai_handler import send_message, validate_api_key, analyze_image_problem
+from modules.graph_engine import generate_calc_plot, extract_equation_from_text, detect_area_request
 import re
 import os
+import mimetypes
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -32,6 +33,70 @@ st.set_page_config(
     page_title="AP Calculus BC AI Mastermind",
     page_icon="📐",
     layout="wide"
+)
+
+# Dark UI polish (Streamlit theme is set in `.streamlit/config.toml`, this just tightens a few surfaces)
+st.markdown(
+    """
+    <style>
+      /* Make the app feel consistently dark (some components keep light borders by default). */
+      html, body { background: #0E1117 !important; }
+      .stApp { background: #0E1117; }
+
+      /* Top header (Streamlit toolbar area) */
+      header[data-testid="stHeader"] { background: #0B0F14; }
+      header[data-testid="stHeader"] * { color: #E6EDF3 !important; }
+
+      /* Sidebar */
+      section[data-testid="stSidebar"] { background: #0B0F14; }
+      section[data-testid="stSidebar"] * { color: #E6EDF3; }
+
+      /* Inputs (selectbox/text inputs) - BaseWeb components */
+      div[data-baseweb="select"] > div {
+        background-color: #0B0F14 !important;
+        border-color: rgba(230, 237, 243, 0.18) !important;
+        color: #E6EDF3 !important;
+      }
+      div[data-baseweb="select"] * { color: #E6EDF3 !important; }
+      div[data-baseweb="popover"] { background: #0B0F14 !important; }
+
+      /* Expanders / containers */
+      div[data-testid="stExpander"] { border-color: rgba(230, 237, 243, 0.12); }
+      div[data-testid="stExpander"] details { background: rgba(22, 27, 34, 0.6); border-radius: 10px; }
+
+      /* Chat input bar */
+      div[data-testid="stBottomBlockContainer"] { background: #0E1117 !important; }
+      div[data-testid="stChatInput"] { background: #0E1117 !important; }
+      div[data-testid="stChatInput"] > div { background: #0E1117 !important; }
+      div[data-testid="stChatInput"] textarea {
+        background: #0B0F14 !important;
+        color: #E6EDF3 !important;
+        border: 1px solid rgba(230, 237, 243, 0.18) !important;
+      }
+
+      /* Buttons */
+      button[kind="secondary"], button[kind="primary"], button {
+        border-radius: 10px !important;
+      }
+      button[kind="secondary"], button {
+        background: #0B0F14 !important;
+        border: 1px solid rgba(230, 237, 243, 0.18) !important;
+        color: #E6EDF3 !important;
+      }
+      button[kind="primary"] {
+        background: #7C5CFF !important;
+        border-color: #7C5CFF !important;
+        color: #0E1117 !important;
+      }
+
+      /* File uploader surface */
+      section[data-testid="stFileUploaderDropzone"] {
+        background: rgba(22, 27, 34, 0.6) !important;
+        border-color: rgba(230, 237, 243, 0.18) !important;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
 # Initialize session state
@@ -212,7 +277,70 @@ with st.sidebar:
 
 # Main content area
 st.title("AP Calculus BC AI Mastermind")
-st.markdown("Your intelligent calculus tutor powered by GPT-4o-mini")
+st.markdown("Your intelligent calculus tutor powered by GPT-5 mini")
+
+# Image upload: OCR → LaTeX → Solve
+with st.expander("🖼️ Upload an image (OCR → LaTeX → Solve)", expanded=False):
+    st.caption(
+        "Upload a screenshot/photo of a math or word problem. The AI will read it, convert it to clean LaTeX, and solve it."
+    )
+
+    uploaded = st.file_uploader(
+        "Upload a problem image (PNG/JPG/WebP)",
+        type=["png", "jpg", "jpeg", "webp"],
+        accept_multiple_files=False,
+    )
+
+    if uploaded is not None:
+        st.image(uploaded, caption="Uploaded image", use_container_width=True)
+
+        col_a, col_b = st.columns(2)
+        do_extract = col_a.button("🧾 Extract → LaTeX", use_container_width=True)
+        do_solve = col_b.button("🧠 Extract + Solve", use_container_width=True, type="primary")
+
+        if do_extract or do_solve:
+            with st.spinner("Reading the image..."):
+                try:
+                    image_bytes = uploaded.getvalue()
+                    mime_type = (uploaded.type or "").strip() or mimetypes.guess_type(uploaded.name)[0] or "image/png"
+
+                    result = analyze_image_problem(
+                        image_bytes=image_bytes,
+                        mime_type=mime_type,
+                        unit_focus=st.session_state.unit_focus,
+                        solve=bool(do_solve),
+                    )
+
+                    extracted_text = result.get("extracted_text", "")
+                    problem_latex = result.get("problem_latex", "")
+                    clean_latex = result.get("clean_latex_code", "")
+                    solution_md = result.get("solution_markdown", "")
+
+                    # Render a nicely formatted assistant message and also store it in chat history.
+                    assistant_md_parts = []
+                    if extracted_text:
+                        assistant_md_parts.append("### Extracted text")
+                        assistant_md_parts.append(extracted_text)
+
+                    if problem_latex:
+                        assistant_md_parts.append("### Problem (LaTeX)")
+                        assistant_md_parts.append(f"$$\n{problem_latex}\n$$")
+
+                    if solution_md:
+                        assistant_md_parts.append("### Solution")
+                        assistant_md_parts.append(solution_md)
+
+                    if clean_latex:
+                        assistant_md_parts.append("### Copy‑ready LaTeX")
+                        assistant_md_parts.append(f"```latex\n{clean_latex}\n```")
+
+                    assistant_md = "\n\n".join(assistant_md_parts).strip() or "I couldn't extract readable text from that image. Try a higher-resolution screenshot."
+
+                    st.session_state.messages.append({"role": "assistant", "content": assistant_md})
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"❌ Image processing error: {str(e)}")
 
 # Display chat history
 for idx, message in enumerate(st.session_state.messages):
@@ -222,7 +350,8 @@ for idx, message in enumerate(st.session_state.messages):
         # Display graph if equation is stored
         if "graph_equation" in message:
             try:
-                html_content = generate_calc_plot(message["graph_equation"])
+                area_bounds = message.get("area_bounds")
+                html_content = generate_calc_plot(message["graph_equation"], area_bounds=area_bounds)
                 components.html(html_content, height=550)
             except Exception as e:
                 st.error(f"Error displaying graph: {str(e)}")
@@ -274,11 +403,17 @@ if prompt := st.chat_input("Ask me anything about AP Calculus BC..."):
                 
                 # Check for equations in the conversation that could be graphed
                 equation_detected = None
+                area_bounds = None
                 
                 # Try to extract equation from user's prompt or AI's response
                 equation_detected = extract_equation_from_text(prompt)
                 if not equation_detected:
                     equation_detected = extract_equation_from_text(response)
+                
+                # Check for area under curve requests
+                area_bounds = detect_area_request(prompt)
+                if not area_bounds:
+                    area_bounds = detect_area_request(response)
 
                 wants_graph_now = _is_graph_request(prompt)
                 
@@ -292,8 +427,12 @@ if prompt := st.chat_input("Ask me anything about AP Calculus BC..."):
                 # Otherwise, store the detected equation and offer a button right away.
                 if equation_detected and wants_graph_now:
                     message_data["graph_equation"] = equation_detected
+                    if area_bounds:
+                        message_data["area_bounds"] = area_bounds
                 elif equation_detected:
                     message_data["equation_detected"] = equation_detected
+                    if area_bounds:
+                        message_data["area_bounds"] = area_bounds
                 
                 st.session_state.messages.append(message_data)
                 msg_idx = len(st.session_state.messages) - 1
@@ -301,7 +440,7 @@ if prompt := st.chat_input("Ask me anything about AP Calculus BC..."):
                 # Render graph or button immediately in this same assistant message
                 if equation_detected and wants_graph_now:
                     try:
-                        html_content = generate_calc_plot(equation_detected)
+                        html_content = generate_calc_plot(equation_detected, area_bounds=area_bounds)
                         components.html(html_content, height=550)
                     except Exception as e:
                         st.error(f"Error generating graph: {str(e)}")
@@ -315,6 +454,8 @@ if prompt := st.chat_input("Ask me anything about AP Calculus BC..."):
                     )
                     if graph_button:
                         st.session_state.messages[msg_idx]["graph_equation"] = equation_detected
+                        if area_bounds:
+                            st.session_state.messages[msg_idx]["area_bounds"] = area_bounds
                         st.rerun()
                 
             except Exception as e:
@@ -327,5 +468,5 @@ if prompt := st.chat_input("Ask me anything about AP Calculus BC..."):
 
 # Footer
 st.divider()
-st.caption("Powered by OpenAI GPT-4o-mini | Built with Streamlit")
+st.caption("Powered by OpenAI GPT-5 mini | Built with Streamlit")
 

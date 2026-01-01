@@ -1,0 +1,67 @@
+
+    <div style="width: 100%; margin: 10px 0;">
+        <h3 style="margin-bottom: 10px; color: #333;">Integrals and Area Under the Curve</h3>
+        <div id="desmos-calc-4fece7e5" style="width: 100%; height: 550px; border: 1px solid #ddd; border-radius: 5px; margin: 10px 0;"></div>
+        <script>
+            (function() {
+                function showError(msg) {
+                    var elt = document.getElementById('desmos-calc-4fece7e5');
+                    if (!elt) return;
+                    elt.innerHTML = '<div style="padding:12px;color:#842029;background:#f8d7da;border:1px solid #f5c2c7;border-radius:6px;">'
+                        + '<strong>Desmos failed to load.</strong><div style="margin-top:6px; font-family: monospace; white-space: pre-wrap;">'
+                        + (msg || 'Unknown error') + '</div></div>';
+                }
+
+                function init() {
+                    if (typeof Desmos === 'undefined') {
+                        showError('Desmos global was not defined after loading calculator.js');
+                        return;
+                    }
+                    var elt = document.getElementById('desmos-calc-4fece7e5');
+                    var calculator = Desmos.GraphingCalculator(elt, {
+                        keypad: true,
+                        zoomButtons: true,
+                        expressions: true,
+                        settingsMenu: true,
+                        xAxisStep: 1,
+                        yAxisStep: 1,
+                        xAxisLabel: 'x',
+                        yAxisLabel: 'y',
+                        xAxisDomain: [-10, 10]
+                    });
+
+                    try { calculator.setExpression({id:'t1', type:'text', text:'Define your favorite function:'}); } catch(e) { console.warn('Desmos setExpression failed:', 't1', e); }
+try { calculator.setExpression({id:'f', latex:'f(x)=x^{2} - 1', color:Desmos.Colors.RED}); } catch(e) { console.warn('Desmos setExpression failed:', 'f', e); }
+try { calculator.setExpression({id:'t2', type:'text', text:'Compute the integral from a to b:'}); } catch(e) { console.warn('Desmos setExpression failed:', 't2', e); }
+try { calculator.setExpression({id:'I', latex:'\\int_{a}^{b} f(t)\\,dt', color:Desmos.Colors.BLACK}); } catch(e) { console.warn('Desmos setExpression failed:', 'I', e); }
+try { calculator.setExpression({id:'a', latex:'a=0', sliderBounds:{min:-10.0,max:10.0,step:0.25}}); } catch(e) { console.warn('Desmos setExpression failed:', 'a', e); }
+try { calculator.setExpression({id:'b', latex:'b=2', sliderBounds:{min:-10.0,max:10.0,step:0.25}}); } catch(e) { console.warn('Desmos setExpression failed:', 'b', e); }
+try { calculator.setExpression({id:'t3', type:'text', text:'Visualize the area under the curve:'}); } catch(e) { console.warn('Desmos setExpression failed:', 't3', e); }
+try { calculator.setExpression({id:'shade', latex:'{f(x)>0:0, f(x)<0:f(x)} < y < {f(x)>0:f(x), f(x)<0:0} {a<x<b, b<x<a}', color:Desmos.Colors.PURPLE, fillOpacity:0.35}); } catch(e) { console.warn('Desmos setExpression failed:', 'shade', e); }
+
+                    
+    try {
+      if (calculator && calculator.expressionAnalysis) {
+        var shade = calculator.expressionAnalysis('shade');
+        if (shade && shade.error) console.warn('Desmos shade error:', shade);
+        else console.log('Desmos shade ok');
+      }
+    } catch(e) {}
+    
+                }
+
+                if (!'961f787f23c3425db9f97ca13171ac31') {
+                    showError('DESMOS_API_KEY is not set.\n\nCreate a .env file with:\nDESMOS_API_KEY=YOUR_DESMOS_KEY\n(or set it in Streamlit secrets).');
+                    return;
+                }
+                var script = document.createElement('script');
+                script.src = 'https://www.desmos.com/api/v1.11/calculator.js?apiKey=961f787f23c3425db9f97ca13171ac31';
+                script.onload = init;
+                script.onerror = function() {
+                    showError('Failed to load ' + script.src + '.\nThis is usually caused by a missing/invalid DESMOS_API_KEY or a network filter blocking desmos.com.');
+                };
+                document.head.appendChild(script);
+            })();
+        </script>
+    </div>
+    

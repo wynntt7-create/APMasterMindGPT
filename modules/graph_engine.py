@@ -18,7 +18,8 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
 def generate_calc_plot(
     equation_string: str,
     x_range: Tuple[float, float] = (-10, 10),
-    title: Optional[str] = None
+    title: Optional[str] = None,
+    area_bounds: Optional[Tuple[float, float]] = None
 ) -> str:
     """
     Generate a Desmos calculator embed HTML for a given mathematical function.
@@ -28,6 +29,7 @@ def generate_calc_plot(
         equation_string: String representation of the function (e.g., "x^2", "r = 1 + cos(theta)", "y = x^2 + 2*x + 1")
         x_range: Tuple of (min, max) x-values for the plot
         title: Optional title for the plot
+        area_bounds: Optional tuple (a, b) to shade area under curve from x=a to x=b
     
     Returns:
         HTML string ready for Streamlit components.v1.html display
@@ -69,7 +71,7 @@ def generate_calc_plot(
             # Clean up but preserve LaTeX notation (Desmos understands LaTeX)
             polar_expr = _latexify_for_desmos(polar_expr)
             # Generate Desmos HTML for polar equation (no SymPy parsing needed)
-            return _generate_desmos_html(polar_expr, x_range, title, equation_type='polar')
+            return _generate_desmos_html(polar_expr, x_range, title, equation_type='polar', area_bounds=area_bounds)
         
         # Check if equation contains LaTeX notation (like \cos, \sin, \theta, etc.)
         # or if it contains theta (indicating polar coordinates)
@@ -83,7 +85,7 @@ def generate_calc_plot(
             polar_expr = equation_string.strip()
             # Ensure LaTeX notation
             polar_expr = _latexify_for_desmos(polar_expr)
-            return _generate_desmos_html(polar_expr, x_range, title, equation_type='polar')
+            return _generate_desmos_html(polar_expr, x_range, title, equation_type='polar', area_bounds=area_bounds)
         
         # Remove common prefixes and notation for Cartesian equations
         equation_string = re.sub(r'f\(x\)\s*=\s*', '', equation_string)
@@ -97,7 +99,7 @@ def generate_calc_plot(
             # Ensure common functions are in LaTeX format
             equation_string = _latexify_for_desmos(equation_string)
             # Pass directly to Desmos without SymPy parsing
-            return _generate_desmos_html(equation_string.strip(), x_range, title, equation_type='cartesian')
+            return _generate_desmos_html(equation_string.strip(), x_range, title, equation_type='cartesian', area_bounds=area_bounds)
         
         # Step 1: Convert ^ to ** for exponentiation (SymPy uses **)
         # Do this FIRST before handling implicit multiplication
@@ -152,7 +154,7 @@ def generate_calc_plot(
         desmos_expr = _convert_to_desmos_format(expr, x)
         
         # Generate HTML with embedded Desmos calculator (Cartesian by default)
-        html_content = _generate_desmos_html(desmos_expr, x_range, title, equation_type='cartesian')
+        html_content = _generate_desmos_html(desmos_expr, x_range, title, equation_type='cartesian', area_bounds=area_bounds)
         
         return html_content
         
@@ -191,7 +193,7 @@ def _convert_to_desmos_format(expr: sp.Expr, x: sp.Symbol) -> str:
     return latex_str
 
 
-def _generate_desmos_html(equation: str, x_range: Tuple[float, float], title: Optional[str] = None, equation_type: str = 'cartesian') -> str:
+def _generate_desmos_html(equation: str, x_range: Tuple[float, float], title: Optional[str] = None, equation_type: str = 'cartesian', area_bounds: Optional[Tuple[float, float]] = None) -> str:
     """
     Generate HTML with embedded Desmos calculator using their JavaScript API.
     
@@ -200,6 +202,7 @@ def _generate_desmos_html(equation: str, x_range: Tuple[float, float], title: Op
         x_range: Tuple of (min, max) x-values
         title: Optional title
         equation_type: Type of equation - 'cartesian', 'polar', or 'parametric'
+        area_bounds: Optional tuple (a, b) to shade area under curve from x=a to x=b
     
     Returns:
         HTML string for embedding
@@ -221,6 +224,60 @@ def _generate_desmos_html(equation: str, x_range: Tuple[float, float], title: Op
     else:  # cartesian
         latex_expr = f'y = {equation_js}'
         display_expr = f'y = {equation}'
+    
+    # Prepare expressions for Desmos
+    expressions_js = ""
+    
+    if area_bounds and equation_type == 'cartesian':
+        # Extract function expression (remove y = or f(x) = prefix if present)
+        # Work with the original equation string, not the escaped one
+        func_expr = equation
+        # Remove y = prefix if present
+        func_expr = re.sub(r'^y\s*=\s*', '', func_expr, flags=re.IGNORECASE)
+        # Remove f(x) = prefix if present
+        func_expr = re.sub(r'^f\(x\)\s*=\s*', '', func_expr, flags=re.IGNORECASE)
+        # Now escape for JavaScript
+        func_expr_js = func_expr.replace('\\', '\\\\').replace("'", "\\'").replace('"', '\\"')
+        
+        # Get bounds
+        a_val, b_val = area_bounds
+        
+        # Generate all expressions exactly as shown in the correct example
+        # Text label: "Define your favorite function:"
+        expressions_js += f"                    try {{ calculator.setExpression({{id:'t1', type:'text', text:'Define your favorite function:'}}); }} catch(e) {{ console.warn('Desmos setExpression failed:', 't1', e); }}\n"
+        
+        # Function: f(x) = [expression] (in red)
+        expressions_js += f"                    try {{ calculator.setExpression({{id:'f', latex:'f(x)={func_expr_js}', color:Desmos.Colors.RED}}); }} catch(e) {{ console.warn('Desmos setExpression failed:', 'f', e); }}\n"
+        
+        # Text label: "Compute the integral from a to b:"
+        expressions_js += f"                    try {{ calculator.setExpression({{id:'t2', type:'text', text:'Compute the integral from a to b:'}}); }} catch(e) {{ console.warn('Desmos setExpression failed:', 't2', e); }}\n"
+        
+        # Integral expression: ∫_a^b f(t)dt
+        expressions_js += f"                    try {{ calculator.setExpression({{id:'I', latex:'\\\\int_{{a}}^{{b}} f(t)\\\\,dt', color:Desmos.Colors.BLACK}}); }} catch(e) {{ console.warn('Desmos setExpression failed:', 'I', e); }}\n"
+        
+        # Variable a with slider
+        expressions_js += f"                    try {{ calculator.setExpression({{id:'a', latex:'a={a_val}', sliderBounds:{{min:-10.0,max:10.0,step:0.25}}}}); }} catch(e) {{ console.warn('Desmos setExpression failed:', 'a', e); }}\n"
+        
+        # Variable b with slider
+        expressions_js += f"                    try {{ calculator.setExpression({{id:'b', latex:'b={b_val}', sliderBounds:{{min:-10.0,max:10.0,step:0.25}}}}); }} catch(e) {{ console.warn('Desmos setExpression failed:', 'b', e); }}\n"
+        
+        # Text label: "Visualize the area under the curve:"
+        expressions_js += f"                    try {{ calculator.setExpression({{id:'t3', type:'text', text:'Visualize the area under the curve:'}}); }} catch(e) {{ console.warn('Desmos setExpression failed:', 't3', e); }}\n"
+        
+        # Shading inequality: {f(x)>0:0, f(x)<0:f(x)} < y < {f(x)>0:f(x), f(x)<0:0} {a<x<b, b<x<a}
+        # Use raw string with escaped curly braces for Desmos piecewise notation
+        shade_latex = r"\{f(x)>0:0, f(x)<0:f(x)\} < y < \{f(x)>0:f(x), f(x)<0:0\} \{a<x<b, b<x<a\}"
+        shade_latex_js = shade_latex.replace('\\', '\\\\').replace("'", "\\'").replace('"', '\\"')
+        expressions_js += f"                    try {{ calculator.setExpression({{id:'shade', latex:'{shade_latex_js}', color:Desmos.Colors.PURPLE, fillOpacity:0.35}}); }} catch(e) {{ console.warn('Desmos setExpression failed:', 'shade', e); }}\n"
+    else:
+        # Standard graph without area shading
+        expressions_js = f"""
+                    calculator.setExpression({{
+                        id: 'graph1',
+                        latex: '{latex_expr}',
+                        color: Desmos.Colors.BLUE
+                    }});
+        """
     
     # Generate HTML with Desmos Graph API
     html = f"""
@@ -258,11 +315,7 @@ def _generate_desmos_html(equation: str, x_range: Tuple[float, float], title: Op
                         xAxisDomain: [{x_range[0]}, {x_range[1]}]
                     }});
 
-                    calculator.setExpression({{
-                        id: 'graph1',
-                        latex: '{latex_expr}',
-                        color: Desmos.Colors.BLUE
-                    }});
+{expressions_js}
                 }}
 
                 // Load Desmos script with explicit callbacks (more reliable in embedded iframes)
@@ -283,6 +336,48 @@ def _generate_desmos_html(equation: str, x_range: Tuple[float, float], title: Op
     """
     
     return html
+
+
+def detect_area_request(text: str) -> Optional[Tuple[float, float]]:
+    """
+    Detect if the text requests area under curve and extract bounds.
+    
+    Args:
+        text: Text that may contain area request (e.g., "area under curve from x=1 to x=3")
+    
+    Returns:
+        Tuple (a, b) if bounds are found, None otherwise
+    """
+    text_lower = text.lower()
+    
+    # Check for area-related keywords
+    area_keywords = ['area under', 'area under the curve', 'shade', 'shaded area', 'integral from', 'from x=', 'between x=']
+    has_area_keyword = any(keyword in text_lower for keyword in area_keywords)
+    
+    if not has_area_keyword:
+        return None
+    
+    # Try to extract bounds: "from x=a to x=b", "between x=a and x=b", "from a to b", etc.
+    patterns = [
+        r'from\s+x\s*=\s*(-?\d+\.?\d*)\s+to\s+x\s*=\s*(-?\d+\.?\d*)',
+        r'between\s+x\s*=\s*(-?\d+\.?\d*)\s+and\s+x\s*=\s*(-?\d+\.?\d*)',
+        r'from\s+x\s*=\s*(-?\d+\.?\d*)\s+and\s+x\s*=\s*(-?\d+\.?\d*)',
+        r'from\s+(-?\d+\.?\d*)\s+to\s+(-?\d+\.?\d*)',
+        r'between\s+(-?\d+\.?\d*)\s+and\s+(-?\d+\.?\d*)',
+        r'x\s*=\s*(-?\d+\.?\d*)\s+to\s+x\s*=\s*(-?\d+\.?\d*)',
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, text_lower)
+        if match:
+            try:
+                a = float(match.group(1))
+                b = float(match.group(2))
+                return (a, b)
+            except (ValueError, IndexError):
+                continue
+    
+    return None
 
 
 def extract_equation_from_text(text: str) -> Optional[str]:

@@ -1,6 +1,6 @@
 # AP Calculus BC AI Mastermind
 
-An intelligent AI-powered chatbot specialized in AP Calculus BC, providing step-by-step explanations, LaTeX-rendered mathematics, and integrated graphing capabilities using OpenAI's GPT-4o-mini.
+An intelligent AI-powered chatbot specialized in AP Calculus BC, providing step-by-step explanations, LaTeX-rendered mathematics, and integrated graphing capabilities using OpenAI's GPT-5 mini.
 
 ## Features
 
@@ -120,7 +120,7 @@ APGPT/
 ## Dependencies
 
 - `streamlit` - Web interface framework
-- `openai` - GPT-4o-mini API client
+- `openai` - GPT-5 mini API client
 - `python-dotenv` - Environment variable management
 - `matplotlib` - Graphing and visualization
 - `numpy` - Numerical computations
@@ -128,7 +128,7 @@ APGPT/
 
 ## Notes
 
-- **API Costs**: This application uses GPT-4o-mini, which incurs API costs. Monitor your usage on the OpenAI platform
+- **API Costs**: This application uses GPT-5 mini, which incurs API costs. Monitor your usage on the OpenAI platform
 - **Internet Required**: The application requires an active internet connection to communicate with OpenAI's API
 - **Graphing Limitations**: The graphing engine works best with standard mathematical functions. Complex parametric or polar equations may require manual input
 
