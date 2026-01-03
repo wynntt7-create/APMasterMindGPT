@@ -50,14 +50,21 @@ def send_message(
         
         # Call OpenAI API
         response = _client.chat.completions.create(
-            model="gpt-5-mini",
+            model="gpt-4o-mini",  # Fixed: Use valid OpenAI model name
             messages=api_messages,
             temperature=1,
-            max_completion_tokens=2000
+            max_tokens=2000  # Fixed: Use max_tokens instead of max_completion_tokens
         )
         
         # Extract and return the response text
-        return response.choices[0].message.content
+        if not response.choices or len(response.choices) == 0:
+            raise ValueError("API returned no choices")
+        
+        content = response.choices[0].message.content
+        if content is None or not content.strip():
+            raise ValueError("API returned empty content")
+        
+        return content
         
     except Exception as e:
         error_msg = f"Error calling OpenAI API: {str(e)}"
@@ -150,7 +157,13 @@ Rules:
             ],
         )
 
+        if not response.choices or len(response.choices) == 0:
+            raise ValueError("API returned no choices")
+        
         raw = response.choices[0].message.content or ""
+        if not raw.strip():
+            raise ValueError("API returned empty content")
+        
         obj = _extract_json_object(raw)
 
         # Normalize expected keys (avoid KeyError if model misses one).

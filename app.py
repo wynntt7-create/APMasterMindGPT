@@ -28,6 +28,154 @@ def _is_graph_request(text: str) -> bool:
     return bool(re.search(r'\b(graph|plot|sketch|draw|visualize|visualise)\b', t))
 
 
+def _extract_visualization_code(text: str) -> list:
+    """
+    Extract Python code blocks containing matplotlib/st.pyplot or plotly/st.plotly_chart from markdown text.
+    
+    Returns:
+        List of code strings found in ```python blocks that contain visualization libraries
+    """
+    if not text:
+        return []
+    
+    # Pattern to match ```python ... ``` blocks
+    pattern = r'```python\s*\n(.*?)```'
+    matches = re.findall(pattern, text, re.DOTALL)
+    
+    visualization_blocks = []
+    for code in matches:
+        code_lower = code.lower()
+        # Check if it contains matplotlib, plotly, or st.pyplot/st.plotly_chart
+        if any(keyword in code_lower for keyword in [
+            'matplotlib', 'plotly', 'st.pyplot', 'st.plotly_chart', 
+            'plt.', 'go.', 'px.', 'fig.add_trace'
+        ]):
+            visualization_blocks.append(code.strip())
+    
+    return visualization_blocks
+
+
+def _execute_visualization_code(code: str) -> bool:
+    """
+    Safely execute visualization code block (Matplotlib or Plotly) and render the plot.
+    
+    Args:
+        code: Python code string containing matplotlib/st.pyplot or plotly/st.plotly_chart calls
+    
+    Returns:
+        True if execution succeeded, False otherwise
+    """
+    try:
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import hashlib
+        import time
+        
+        # Modify code to inject unique keys into st.plotly_chart calls
+        # Pattern: st.plotly_chart(fig) -> st.plotly_chart(fig, key="unique_key")
+        # Handle various formats: st.plotly_chart(fig), st.plotly_chart(fig, use_container_width=True), etc.
+        modified_code = code
+        if 'st.plotly_chart' in code.lower():
+            # Counter for multiple plotly_chart calls in the same code block
+            chart_counter = [0]
+            
+            # Pattern to match st.plotly_chart calls with or without existing parameters
+            # This regex matches the function call and captures the arguments
+            pattern = r'st\.plotly_chart\s*\(([^)]*)\)'
+            
+            def add_key(match):
+                chart_counter[0] += 1
+                # Generate unique key for this specific chart call
+                unique_key = hashlib.md5((code + str(time.time()) + str(chart_counter[0])).encode()).hexdigest()[:12]
+                
+                args = match.group(1).strip()
+                # Check if key already exists
+                if 'key=' in args:
+                    return match.group(0)  # Already has a key, don't modify
+                
+                # Check if there are existing kwargs (comma-separated)
+                if args and (',' in args or '=' in args):
+                    # Add key to existing kwargs
+                    return f'st.plotly_chart({args}, key="{unique_key}")'
+                elif args:
+                    # Single argument case
+                    return f'st.plotly_chart({args}, key="{unique_key}")'
+                else:
+                    # No arguments case (shouldn't happen, but handle it)
+                    return f'st.plotly_chart(key="{unique_key}")'
+            
+            modified_code = re.sub(pattern, add_key, code)
+        
+        # Create a safe execution context
+        # Note: This executes code, so be cautious in production
+        exec_globals = {
+            'plt': plt,
+            'np': np,
+            'st': st,
+            'matplotlib': __import__('matplotlib'),
+            'numpy': np,
+            '__builtins__': __builtins__
+        }
+        
+        # Try to import plotly if needed
+        code_lower = code.lower()
+        if 'plotly' in code_lower or 'st.plotly_chart' in code_lower:
+            try:
+                import plotly.graph_objects as go
+                import plotly.express as px
+                exec_globals['go'] = go
+                exec_globals['px'] = px
+                exec_globals['plotly'] = __import__('plotly')
+            except ImportError:
+                st.warning("Plotly is not installed. Install it with: pip install plotly")
+                return False
+        
+        # Execute the modified code
+        exec(modified_code, exec_globals)
+        
+        return True
+    except Exception as e:
+        st.error(f"Error executing visualization code: {str(e)}")
+        import traceback
+        st.code(traceback.format_exc())
+        return False
+
+
+def _remove_visualization_code_blocks(text: str) -> str:
+    """
+    Remove Python code blocks containing visualization code from markdown text.
+    This hides the code from display while still allowing execution.
+    
+    Args:
+        text: Markdown text that may contain visualization code blocks
+    
+    Returns:
+        Text with visualization code blocks removed
+    """
+    if not text:
+        return text
+    
+    # Pattern to match ```python ... ``` blocks
+    pattern = r'```python\s*\n(.*?)```'
+    
+    def should_remove(match):
+        code = match.group(1)
+        code_lower = code.lower()
+        # Check if it contains visualization libraries
+        return any(keyword in code_lower for keyword in [
+            'matplotlib', 'plotly', 'st.pyplot', 'st.plotly_chart', 
+            'plt.', 'go.', 'px.', 'fig.add_trace'
+        ])
+    
+    # Replace visualization code blocks with empty string
+    result = re.sub(pattern, lambda m: '' if should_remove(m) else m.group(0), text, flags=re.DOTALL)
+    
+    # Clean up multiple consecutive newlines
+    result = re.sub(r'\n{3,}', '\n\n', result)
+    
+    return result.strip()
+
+
 # Page configuration
 st.set_page_config(
     page_title="AP Calculus BC AI Mastermind",
@@ -107,6 +255,10 @@ if "unit_focus" not in st.session_state:
     st.session_state.unit_focus = None
 if "last_selected_unit" not in st.session_state:
     st.session_state.last_selected_unit = "None (General)"
+if "generate_followup" not in st.session_state:
+    st.session_state.generate_followup = False
+if "show_desmos" not in st.session_state:
+    st.session_state.show_desmos = False
 
 # Unit → subunit structure (AP Calculus BC)
 # These are used only for UI focus; the tutor can still answer anything.
@@ -255,6 +407,7 @@ with st.sidebar:
     # Clear Chat Button
     if st.button("🗑️ Clear Chat", use_container_width=True):
         st.session_state.messages = []
+        st.session_state.generate_followup = False
         st.rerun()
     
     st.divider()
@@ -274,199 +427,198 @@ with st.sidebar:
     else:
         st.warning("⚠️ Desmos Key Missing")
         st.caption("Set `DESMOS_API_KEY` in your `.env` (graphs won't load without it).")
-
-# Main content area
-st.title("AP Calculus BC AI Mastermind")
-st.markdown("Your intelligent calculus tutor powered by GPT-5 mini")
-
-# Image upload: OCR → LaTeX → Solve
-with st.expander("🖼️ Upload an image (OCR → LaTeX → Solve)", expanded=False):
-    st.caption(
-        "Upload a screenshot/photo of a math or word problem. The AI will read it, convert it to clean LaTeX, and solve it."
-    )
-
-    uploaded = st.file_uploader(
-        "Upload a problem image (PNG/JPG/WebP)",
-        type=["png", "jpg", "jpeg", "webp"],
-        accept_multiple_files=False,
-    )
-
-    if uploaded is not None:
-        st.image(uploaded, caption="Uploaded image", use_container_width=True)
-
-        col_a, col_b = st.columns(2)
-        do_extract = col_a.button("🧾 Extract → LaTeX", use_container_width=True)
-        do_solve = col_b.button("🧠 Extract + Solve", use_container_width=True, type="primary")
-
-        if do_extract or do_solve:
-            with st.spinner("Reading the image..."):
-                try:
-                    image_bytes = uploaded.getvalue()
-                    mime_type = (uploaded.type or "").strip() or mimetypes.guess_type(uploaded.name)[0] or "image/png"
-
-                    result = analyze_image_problem(
-                        image_bytes=image_bytes,
-                        mime_type=mime_type,
-                        unit_focus=st.session_state.unit_focus,
-                        solve=bool(do_solve),
-                    )
-
-                    extracted_text = result.get("extracted_text", "")
-                    problem_latex = result.get("problem_latex", "")
-                    clean_latex = result.get("clean_latex_code", "")
-                    solution_md = result.get("solution_markdown", "")
-
-                    # Render a nicely formatted assistant message and also store it in chat history.
-                    assistant_md_parts = []
-                    if extracted_text:
-                        assistant_md_parts.append("### Extracted text")
-                        assistant_md_parts.append(extracted_text)
-
-                    if problem_latex:
-                        assistant_md_parts.append("### Problem (LaTeX)")
-                        assistant_md_parts.append(f"$$\n{problem_latex}\n$$")
-
-                    if solution_md:
-                        assistant_md_parts.append("### Solution")
-                        assistant_md_parts.append(solution_md)
-
-                    if clean_latex:
-                        assistant_md_parts.append("### Copy‑ready LaTeX")
-                        assistant_md_parts.append(f"```latex\n{clean_latex}\n```")
-
-                    assistant_md = "\n\n".join(assistant_md_parts).strip() or "I couldn't extract readable text from that image. Try a higher-resolution screenshot."
-
-                    st.session_state.messages.append({"role": "assistant", "content": assistant_md})
-                    st.rerun()
-
-                except Exception as e:
-                    st.error(f"❌ Image processing error: {str(e)}")
-
-# Display chat history
-for idx, message in enumerate(st.session_state.messages):
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
-        
-        # Display graph if equation is stored
-        if "graph_equation" in message:
-            try:
-                area_bounds = message.get("area_bounds")
-                html_content = generate_calc_plot(message["graph_equation"], area_bounds=area_bounds)
-                components.html(html_content, height=550)
-            except Exception as e:
-                st.error(f"Error displaying graph: {str(e)}")
-        
-        # Show graph button if equation detected but not yet graphed
-        if "equation_detected" in message and "graph_equation" not in message:
-            eq = message["equation_detected"]
-            button_key = f"graph_btn_{idx}"
-            # Show the equation and button clearly
-            st.write(f"**Function detected:** `{eq}`")
-            graph_button = st.button(f"📊 Graph This Function", key=button_key, use_container_width=True, type="primary")
-            
-            if graph_button:
-                try:
-                    # Update the message in session state to include the graph
-                    st.session_state.messages[idx]["graph_equation"] = eq
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error generating graph: {str(e)}")
-
-# Chat input
-if prompt := st.chat_input("Ask me anything about AP Calculus BC..."):
-    # Add user message to chat history
-    st.session_state.messages.append({"role": "user", "content": prompt})
     
-    # Display user message
-    with st.chat_message("user"):
-        st.markdown(prompt)
+    st.divider()
     
-    # Generate AI response
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking..."):
-            try:
-                # Prepare messages for API (exclude graph data)
-                api_messages = [
-                    {"role": msg["role"], "content": msg["content"]}
-                    for msg in st.session_state.messages
-                    if "role" in msg and "content" in msg
-                ]
-                
-                # Get AI response
-                response = send_message(
-                    api_messages,
-                    unit_focus=st.session_state.unit_focus
-                )
-                
-                # Display response
-                st.markdown(response)
-                
-                # Check for equations in the conversation that could be graphed
-                equation_detected = None
-                area_bounds = None
-                
-                # Try to extract equation from user's prompt or AI's response
-                equation_detected = extract_equation_from_text(prompt)
-                if not equation_detected:
-                    equation_detected = extract_equation_from_text(response)
-                
-                # Check for area under curve requests
-                area_bounds = detect_area_request(prompt)
-                if not area_bounds:
-                    area_bounds = detect_area_request(response)
+    # Desmos Sandbox Toggle
+    if st.button("📊 Desmos Sandbox", use_container_width=True, type="primary" if st.session_state.show_desmos else "secondary"):
+        st.session_state.show_desmos = not st.session_state.show_desmos
+        st.rerun()
 
-                wants_graph_now = _is_graph_request(prompt)
-                
-                # Add assistant response to chat history
-                message_data = {
-                    "role": "assistant",
-                    "content": response
-                }
-                
-                # If user explicitly asked to graph/plot, render immediately.
-                # Otherwise, store the detected equation and offer a button right away.
-                if equation_detected and wants_graph_now:
-                    message_data["graph_equation"] = equation_detected
-                    if area_bounds:
-                        message_data["area_bounds"] = area_bounds
-                elif equation_detected:
-                    message_data["equation_detected"] = equation_detected
-                    if area_bounds:
-                        message_data["area_bounds"] = area_bounds
-                
-                st.session_state.messages.append(message_data)
-                msg_idx = len(st.session_state.messages) - 1
+# Main content area - split screen if Desmos is enabled
+if st.session_state.show_desmos:
+    # Split screen: Chat on left, Desmos on right
+    chat_col, desmos_col = st.columns([1, 1])
+    
+    with chat_col:
+        st.title("AP Calculus BC AI Mastermind")
+        st.markdown("Your intelligent calculus tutor powered by GPT-5 mini")
+        
+        # All chat content goes here
+        chat_content_container = st.container()
+    
+    with desmos_col:
+        st.subheader("📊 Desmos Sandbox")
+        # Embed Desmos calculator iframe
+        desmos_html = """
+        <iframe src="https://www.desmos.com/calculator" 
+                width="100%" 
+                height="800px" 
+                frameborder="0" 
+                style="border: 1px solid #ccc; border-radius: 5px;">
+        </iframe>
+        """
+        components.html(desmos_html, height=800)
+else:
+    # Full width chat
+    st.title("AP Calculus BC AI Mastermind")
+    st.markdown("Your intelligent calculus tutor powered by GPT-5 mini")
+    chat_content_container = st.container()
 
-                # Render graph or button immediately in this same assistant message
-                if equation_detected and wants_graph_now:
+# All main content wrapped in container (for split screen support)
+with chat_content_container:
+    # Image upload: OCR → LaTeX → Solve
+    with st.expander("🖼️ Upload an image (OCR → LaTeX → Solve)", expanded=False):
+        st.caption(
+            "Upload a screenshot/photo of a math or word problem. The AI will read it, convert it to clean LaTeX, and solve it."
+        )
+
+        uploaded = st.file_uploader(
+            "Upload a problem image (PNG/JPG/WebP)",
+            type=["png", "jpg", "jpeg", "webp"],
+            accept_multiple_files=False,
+        )
+
+        if uploaded is not None:
+            st.image(uploaded, caption="Uploaded image", use_container_width=True)
+
+            col_a, col_b = st.columns(2)
+            do_extract = col_a.button("🧾 Extract → LaTeX", use_container_width=True)
+            do_solve = col_b.button("🧠 Extract + Solve", use_container_width=True, type="primary")
+
+            if do_extract or do_solve:
+                with st.spinner("Reading the image..."):
                     try:
-                        html_content = generate_calc_plot(equation_detected, area_bounds=area_bounds)
-                        components.html(html_content, height=550)
-                    except Exception as e:
-                        st.error(f"Error generating graph: {str(e)}")
-                elif equation_detected:
-                    st.write(f"**Function detected:** `{equation_detected}`")
-                    graph_button = st.button(
-                        "📊 Graph This Function",
-                        key=f"graph_btn_live_{msg_idx}",
-                        use_container_width=True,
-                        type="primary",
-                    )
-                    if graph_button:
-                        st.session_state.messages[msg_idx]["graph_equation"] = equation_detected
-                        if area_bounds:
-                            st.session_state.messages[msg_idx]["area_bounds"] = area_bounds
-                        st.rerun()
-                
-            except Exception as e:
-                error_message = f"❌ Error: {str(e)}"
-                st.error(error_message)
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": error_message
-                })
+                        image_bytes = uploaded.getvalue()
+                        mime_type = (uploaded.type or "").strip() or mimetypes.guess_type(uploaded.name)[0] or "image/png"
 
-# Footer
-st.divider()
-st.caption("Powered by OpenAI GPT-5 mini | Built with Streamlit")
+                        result = analyze_image_problem(
+                            image_bytes=image_bytes,
+                            mime_type=mime_type,
+                            unit_focus=st.session_state.unit_focus,
+                            solve=bool(do_solve),
+                        )
+
+                        extracted_text = result.get("extracted_text", "")
+                        problem_latex = result.get("problem_latex", "")
+                        clean_latex = result.get("clean_latex_code", "")
+                        solution_md = result.get("solution_markdown", "")
+
+                        # Render a nicely formatted assistant message and also store it in chat history.
+                        assistant_md_parts = []
+                        if extracted_text:
+                            assistant_md_parts.append("### Extracted text")
+                            assistant_md_parts.append(extracted_text)
+
+                        if problem_latex:
+                            assistant_md_parts.append("### Problem (LaTeX)")
+                            assistant_md_parts.append(f"$$\n{problem_latex}\n$$")
+
+                        if solution_md:
+                            assistant_md_parts.append("### Solution")
+                            assistant_md_parts.append(solution_md)
+
+                        if clean_latex:
+                            assistant_md_parts.append("### Copy‑ready LaTeX")
+                            assistant_md_parts.append(f"```latex\n{clean_latex}\n```")
+
+                        assistant_md = "\n\n".join(assistant_md_parts).strip() or "I couldn't extract readable text from that image. Try a higher-resolution screenshot."
+
+                        st.session_state.messages.append({"role": "assistant", "content": assistant_md})
+                        st.rerun()
+
+                    except Exception as e:
+                        st.error(f"❌ Image processing error: {str(e)}")
+
+    # Removed automatic followup practice problem generation
+    # Users can explicitly ask for practice problems if they want them
+
+    # Display chat history
+    for idx, message in enumerate(st.session_state.messages):
+        with st.chat_message(message["role"]):
+            content = message.get("content", "")
+            # Remove visualization code blocks from display (hide the code)
+            display_content = _remove_visualization_code_blocks(content)
+            st.markdown(display_content)
+            
+            # Check for visualization code blocks (Matplotlib/Plotly) in assistant messages and execute them
+            if message["role"] == "assistant" and content:
+                visualization_blocks = _extract_visualization_code(content)
+                for code_block in visualization_blocks:
+                    with st.expander("📊 View Generated Plot", expanded=True):
+                        _execute_visualization_code(code_block)
+            
+            # Note: Desmos graph generation via graph_equation is disabled
+            # Graphs are now generated via Plotly/Matplotlib code blocks in the AI response
+
+    # Chat input
+    if prompt := st.chat_input("Ask me anything about AP Calculus BC..."):
+        # Add user message to chat history
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        
+        # Display user message
+        with st.chat_message("user"):
+            st.markdown(prompt)
+        
+        # Generate AI response
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                try:
+                    # Prepare messages for API - FILTER OUT EMPTY MESSAGES
+                    api_messages = [
+                        {"role": msg["role"], "content": msg["content"]}
+                        for msg in st.session_state.messages
+                        if "role" in msg 
+                        and "content" in msg 
+                        and msg.get("content", "").strip()  # Only include non-empty messages
+                    ]
+                    
+                    # Validate we have messages to send
+                    if not api_messages:
+                        raise ValueError("No valid messages to send to API")
+                    
+                    # Get AI response
+                    response = send_message(
+                        api_messages,
+                        unit_focus=st.session_state.unit_focus
+                    )
+                    
+                    # Validate response is not empty
+                    if not response or not response.strip():
+                        raise ValueError("Empty response from API")
+                    
+                    # Remove visualization code blocks from display (hide the code)
+                    display_response = _remove_visualization_code_blocks(response)
+                    st.markdown(display_response)
+                    
+                    # Check for visualization code blocks (Matplotlib/Plotly) and execute them automatically
+                    visualization_blocks = _extract_visualization_code(response)
+                    for code_block in visualization_blocks:
+                        with st.expander("📊 View Generated Plot", expanded=True):
+                            _execute_visualization_code(code_block)
+                    
+                    # Add assistant response to chat history
+                    message_data = {
+                        "role": "assistant",
+                        "content": response
+                    }
+                    
+                    st.session_state.messages.append(message_data)
+                    
+                    # Removed automatic followup practice problem generation
+                    # Users can explicitly ask for practice problems if they want them
+                    st.rerun()
+                    
+                except Exception as e:
+                    error_message = f"❌ Error: {str(e)}"
+                    st.error(error_message)
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": error_message
+                    })
+                    # Don't generate followup on error
+
+    # Footer
+    st.divider()
+    st.caption("Powered by OpenAI GPT-5 mini | Built with Streamlit")
 
